@@ -12,7 +12,7 @@ import Wallet from '../pages/Wallet';
 
 function App() {
   const { provider } = configureChains([sepolia], [publicProvider()]);
-
+  
   const client = createClient({
     provider,
     autoConnect: true,

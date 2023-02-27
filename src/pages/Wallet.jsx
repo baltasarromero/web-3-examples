@@ -1,13 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
-import { useSigner, useAccount, useProvider } from 'wagmi';
+import { useSigner, useAccount } from 'wagmi';
 import libTokenABI from '../abi/Lib.json';
 import bookLibraryABI from '../abi/BookLibraryWithToken.json';
 import Button from '../components/ui/Button';
+import { MetaMaskConnector } from 'wagmi/connectors/metaMask';
+import { sepolia } from 'wagmi/chains';
 
 const Wallet = () => {
   const { data: signer } = useSigner();
   const { address } = useAccount();
+  const connector = new MetaMaskConnector({
+    chains: [sepolia],
+  });
 
   const [isLoading, setIsLoading] = useState(false);
   const [libraryTokenContract, setLibraryTokenContract] = useState();
@@ -132,8 +137,7 @@ const Wallet = () => {
       });
 
       console.log("this is the data to be sent", data);
-      console.log("book library contract address ", bookLibraryContract.address);
-      const signatureLike = await signer.send('eth_signTypedData_v4', [address, data]); // Library is a provider.
+      const signatureLike = await signer.signMessage('eth_signTypedData_v4', [address, data]); // Library is a provider.
       const signature = await ethers.utils.splitSignature(signatureLike);
 
       const preparedSignature = {
@@ -144,6 +148,25 @@ const Wallet = () => {
       };
 
       console.log("signature like: ", preparedSignature);
+      // borrow the book using the signed message
+      console.log("this is the book library addreSs", bookLibraryContract.address);
+
+      const numberOfBooks = await bookLibraryContract.getNumberOfBooks();
+      console.log("the number of books in the library is", numberOfBooks.toString());
+      console.log("these are the parameters that will be sent");
+      const bookKey = ethers.utils.keccak256(ethers.utils.toUtf8Bytes("100 years of solitude"));
+      console.log("book id", bookKey);
+      console.log("value", 1000001);
+      console.log("deadline", preparedSignature.deadline);  
+      console.log("v", preparedSignature.v);
+      console.log("r", preparedSignature.r);
+      console.log("s", preparedSignature.s);
+
+      const borrowTx = await bookLibraryContract.borrowBook(ethers.utils.formatBytes32String("100 years of solitude"), 1000001, preparedSignature.deadline, preparedSignature.v, preparedSignature.r, preparedSignature.s);
+      console.log("borrow book transaction created");
+      await borrowTx.wait();
+      console.log("borrow book transaction complete"); 
+
       return preparedSignature;    
 
     } catch (e) {
@@ -153,6 +176,17 @@ const Wallet = () => {
       setIsLoading(false);
     }
   };
+
+
+  /* const handleAttemptToApprove = async () => {
+    const preparedSignature = await prepareSignature();
+    console.log("this is the prepared signature", prepareSignature);
+    // borrow the book using the signed message
+    const borrowTx = await bookLibraryContract.borrowBook(ethers.utils.formatBytes32String("100 years of solitude"), 1000001, preparedSignature.deadline, preparedSignature.v, preparedSignature.r, preparedSignature.s); // Our Token Contract Nonces
+    console.log("borrow book transaction created");
+    await borrowTx.wait();
+    console.log("borrow book transaction complete");
+  }; */
 
   return (
     <div className="container my-5 my-lg-10">
