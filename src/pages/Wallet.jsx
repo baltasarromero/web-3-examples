@@ -1,79 +1,43 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
-import { useSigner, useAccount } from 'wagmi';
-import walletABI from '../abi/Wallet.json';
-import wrapperABI from '../abi/ETHWrapper.json';
+import { useSigner, useAccount, useProvider } from 'wagmi';
+import libTokenABI from '../abi/Lib.json';
+import bookLibraryABI from '../abi/BookLibraryWithToken.json';
 import Button from '../components/ui/Button';
 
 const Wallet = () => {
   const { data: signer } = useSigner();
   const { address } = useAccount();
 
-  const [contract, setContract] = useState();
-  const [userBalance, setUserBalance] = useState('0');
-  const [amount, setAmount] = useState('0');
   const [isLoading, setIsLoading] = useState(false);
-  const [wrapperContract, setWrapperContract] = useState();
-  const [signedMessage, setSignedMessage] = useState();
+  const [libraryTokenContract, setLibraryTokenContract] = useState();
+  const [bookLibraryContract, setBookLibraryContract] = useState();
+/*   const [signedMessage, setSignedMessage] = useState();
   const [hashedMessage, setHashedMessage] = useState();
-  const [tokenReceiver, setTokenReceiver] = useState();
+  const [tokenReceiver, setTokenReceiver] = useState(); */
   
-
-  const handleAmountChange = e => {
-    const { value } = e.target;
-    setAmount(value);
-  };
-
   useEffect(() => {
-    if (signer) {
-       const _contract = new ethers.Contract(
-        '0x9D9955688649A7071a032DBf1e565023E6775690',
-        walletABI,
+     if (signer) {
+      const _libraryTokenWithPermitsContract = new ethers.Contract(
+        '0x5EeA5bC9f3c1F63136B7a194E0aaA6246043c2CB',
+        libTokenABI.abi,
         signer,
       );
 
-     
-      setContract(_contract); 
+      setLibraryTokenContract(_libraryTokenWithPermitsContract); 
 
-      const _wrapperContract = new ethers.Contract(
-        '0x54713b609D83A5cb7162A453566f31D71aA7D994',
-        wrapperABI.abi,
+      const _bookLibraryContract = new ethers.Contract(
+        '0x202bbcdeDe703E3d7AC6fE5507F24BDB746f36fE',
+        bookLibraryABI.abi,
         signer,
       );
 
-      setWrapperContract(_wrapperContract);
+      setBookLibraryContract(_bookLibraryContract); 
 
     }
   }, [signer]);
 
-  const getBalance = useCallback(async () => {
-    const result = await contract.userBalance(address);
-    const balanceFormatted = ethers.utils.formatEther(result);
-    setUserBalance(balanceFormatted);
-  }, [contract, address]);
-
-  useEffect(() => {
-    contract && getBalance();
-  }, [contract, getBalance]);
-
-  const handleDepositButtonClick = async () => {
-    setIsLoading(true);
-
-    try {
-      const tx = await contract.deposit({ value: ethers.utils.parseEther(amount) });
-      await tx.wait();
-
-      setAmount('0');
-
-      await getBalance();
-    } catch (e) {
-      console.log('e', e);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleSingMessage = async () => {
+/*   const handleSingMessage = async () => {
     setIsLoading(true);
 
     try {
@@ -117,16 +81,73 @@ const Wallet = () => {
         setIsLoading(false);
       }
   };
+*/
 
-  const handleWithdrawButtonClick = async () => {
+  const handleAttemptToApprove = async () => {
     setIsLoading(true);
-
     try {
-      const tx = await contract.withdraw();
-      await tx.wait();
+      // Account here is the wallet address
+      const nonce = (await libraryTokenContract.nonces(address)); // Our Token Contract Nonces
+      const deadline = + new Date() + 60 * 60; // Permit with deadline which the permit is valid
+      const wrapValue = ethers.utils.parseEther('0.1'); // Value to approve for the spender to use
 
-      await getBalance();
+      const EIP712Domain = [ // array of objects -> properties from the contract and the types of them ircwithPermit
+          { name: 'name', type: 'string' },
+          { name: 'version', type: 'string' },
+          { name: 'verifyingContract', type: 'address' }
+      ];
+
+      const domain = {
+          name: await libraryTokenContract.name(),
+          version: '1',
+          verifyingContract: libraryTokenContract.address
+      };
+
+      console.log("this is the domain ", domain);
+
+      const Permit = [ // array of objects -> properties from erc20withpermit
+          { name: 'owner', type: 'address' },
+          { name: 'spender', type: 'address' },
+          { name: 'value', type: 'uint256' },
+          { name: 'nonce', type: 'uint256' },
+          { name: 'deadline', type: 'uint256' }
+      ];
+
+      const message = {
+          owner: address, // Wallet Address
+          spender: "0xbc4d110Ee25C9e1cCCA254eD68f1379fe4DB7F7b", // **This is the address of the spender whe want to give permit to.**
+          value: wrapValue.toString(),
+          nonce: nonce.toHexString(),
+          deadline
+      };
+
+      const data = JSON.stringify({
+          types: {
+              EIP712Domain,
+              Permit
+          },
+          domain,
+          primaryType: 'Permit',
+          message
+      });
+
+      console.log("this is the data to be sent", data);
+      console.log("book library contract address ", bookLibraryContract.address);
+      const signatureLike = await signer.send('eth_signTypedData_v4', [address, data]); // Library is a provider.
+      const signature = await ethers.utils.splitSignature(signatureLike);
+
+      const preparedSignature = {
+          v: signature.v,
+          r: signature.r,
+          s: signature.s,
+          deadline
+      };
+
+      console.log("signature like: ", preparedSignature);
+      return preparedSignature;    
+
     } catch (e) {
+      console.log("something went wrong");
       console.log('e', e);
     } finally {
       setIsLoading(false);
@@ -137,42 +158,16 @@ const Wallet = () => {
     <div className="container my-5 my-lg-10">
       <div className="row">
         <div className="col-6">
-          <h1 className="heading-medium mb-5">Basic contract interaction</h1>
+          <h1 className="heading-medium mb-5">Contract interaction via permits</h1>
           <div className="d-flex align-items-center">
-            <div>
-              <input
-                type="text"
-                className="form-control"
-                value={amount}
-                onChange={handleAmountChange}
-              />
-            </div>
             <div className="ms-3">
-              <Button loading={isLoading} onClick={handleDepositButtonClick} type="primary">
-                Deposit
-              </Button>
-            </div>
-            <div className="ms-3">
-              <Button loading={isLoading} onClick={handleSingMessage} type="primary">
-                Sign Message
-              </Button>
-            </div>
-            <div className="ms-3">
-              <Button loading={isLoading} onClick={handleWrapTokenWithSignedMessage} type="primary">
-                Wrap With Signed Message
+              <Button loading={isLoading} onClick={handleAttemptToApprove} type="primary">
+                Borrow book using permits
               </Button>
             </div>
           </div>
         </div>
       </div>
-      <div className="mt-5">{userBalance} ETH</div>
-      {Number(userBalance) > 0 ? (
-        <div className="mt-2">
-          <Button loading={isLoading} onClick={handleWithdrawButtonClick} type="primary">
-            Withdraw
-          </Button>
-        </div>
-      ) : null}
     </div>
     
   );
