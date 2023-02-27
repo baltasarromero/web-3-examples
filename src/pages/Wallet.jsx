@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { ethers } from 'ethers';
 import { useSigner, useAccount } from 'wagmi';
 import walletABI from '../abi/Wallet.json';
+import wrapperABI from '../abi/ETHWrapper.json';
 import Button from '../components/ui/Button';
 
 const Wallet = () => {
@@ -12,6 +13,11 @@ const Wallet = () => {
   const [userBalance, setUserBalance] = useState('0');
   const [amount, setAmount] = useState('0');
   const [isLoading, setIsLoading] = useState(false);
+  const [wrapperContract, setWrapperContract] = useState();
+  const [signedMessage, setSignedMessage] = useState();
+  const [hashedMessage, setHashedMessage] = useState();
+  const [tokenReceiver, setTokenReceiver] = useState();
+  
 
   const handleAmountChange = e => {
     const { value } = e.target;
@@ -20,13 +26,23 @@ const Wallet = () => {
 
   useEffect(() => {
     if (signer) {
-      const _contract = new ethers.Contract(
+       const _contract = new ethers.Contract(
         '0x9D9955688649A7071a032DBf1e565023E6775690',
         walletABI,
         signer,
       );
 
-      setContract(_contract);
+     
+      setContract(_contract); 
+
+      const _wrapperContract = new ethers.Contract(
+        '0x54713b609D83A5cb7162A453566f31D71aA7D994',
+        wrapperABI.abi,
+        signer,
+      );
+
+      setWrapperContract(_wrapperContract);
+
     }
   }, [signer]);
 
@@ -55,6 +71,51 @@ const Wallet = () => {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleSingMessage = async () => {
+    setIsLoading(true);
+
+    try {
+      const _messageHash = ethers.utils.solidityKeccak256(['string'], ["Yes, i Signed the message"]) 
+      setHashedMessage(_messageHash);
+      const _arrayfiedHash = ethers.utils.arrayify(_messageHash);
+      const _signedMessage = await signer.signMessage(_arrayfiedHash);
+      console.log("this is the signed message", _signedMessage);
+      setSignedMessage(_signedMessage);
+      const _signerAddress =  await signer.getAddress();
+      console.log("this is the signer", _signerAddress);
+      setTokenReceiver(_signerAddress);
+    } catch (e) {
+      console.log('e', e);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleWrapTokenWithSignedMessage = async () => {
+      setIsLoading(true);
+      try {
+        console.log("wrapping with signed message");
+        console.log("signed message is ", signedMessage);
+        console.log("hashed message is ", hashedMessage);
+        const sig = ethers.utils.splitSignature(signedMessage);
+        console.log(`signature parts are v: ${sig.v} r: ${sig.r} s: ${sig.s}`);
+        console.log("This is the token receiver", tokenReceiver);
+
+        const wrapValue = ethers.utils.parseEther("0.0003");
+        console.log("wrapperContract is", wrapperContract.address);
+        
+        const wrapTx = await wrapperContract.wrapWithSignature(hashedMessage, sig.v, sig.r, sig.s, tokenReceiver,  {value: wrapValue})
+        console.log("transaction created");
+        await wrapTx.wait();
+        console.log("transaction complete");
+      } catch (e) {
+        console.log("something went wrong");
+        console.log('e', e);
+      } finally {
+        setIsLoading(false);
+      }
   };
 
   const handleWithdrawButtonClick = async () => {
@@ -91,6 +152,16 @@ const Wallet = () => {
                 Deposit
               </Button>
             </div>
+            <div className="ms-3">
+              <Button loading={isLoading} onClick={handleSingMessage} type="primary">
+                Sign Message
+              </Button>
+            </div>
+            <div className="ms-3">
+              <Button loading={isLoading} onClick={handleWrapTokenWithSignedMessage} type="primary">
+                Wrap With Signed Message
+              </Button>
+            </div>
           </div>
         </div>
       </div>
@@ -103,6 +174,7 @@ const Wallet = () => {
         </div>
       ) : null}
     </div>
+    
   );
 };
 
